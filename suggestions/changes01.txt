@@ -1,0 +1,8 @@
+- The path of the trash dir has to be loaded from the .trashrc stored in the user home dir.
+- Add the following line to the startup script to show trash dir info: trash --info 
+- Before finalizing convert all indentations to spaces.
+- Check all the echo/printf statements with the debug variable enabled.
+- Change [ $debug -eq 1 ] to [ $debug ] and initialize debug as debug=
+- Place  >>/dev/stderr for each error print statements.
+- Remove all comments while finalizing.
+- Update the README.md finally.
