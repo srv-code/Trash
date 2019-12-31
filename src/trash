@@ -3,17 +3,24 @@
 readonly APP_VERSION=0.1
 
 readonly DEFAULT_TRASHBIN_PATH="$HOME/.trashed"
-readonly PREF_FILENAME=".vimrc"
+readonly PREF_FILENAME=".trashrc"
 readonly PREF_FILEPATH="$HOME/$PREF_FILENAME"
 
-
-trashbin_path=DEFAULT_TRASHBIN_PATH  # default value set
+trashbin_path=$DEFAULT_TRASHBIN_PATH  # default value set
 itemcount=0
 totalsz=0
+verbose=
+srclist=()
+
 
 load_prefs() {
-    echo "  # load_prefs called"  # DEBUG
+    echo "  # invoked load_prefs()"  # DEBUG
     if [ -e "$PREF_FILEPATH" ]; then 
+        if [ ! -f "$PREF_FILEPATH" ]; then 
+            echo "Err: Preference file $PREF_FILEPATH exists but is not a file. Manually delete this entry." >>/dev/stderr
+            exit 2
+        fi
+
         while IFS= read -r line
         do
             key=$(echo "$line" | cut -d= -f1)
@@ -21,7 +28,7 @@ load_prefs() {
             case "$key" in 
                 TRASHBIN_PATH)
                     if [ -z "$val" ]; then
-                        echo "Error: Empty value for key: $key in preference file $PREF_FILEPATH" >>/dev/stderr
+                        echo "Parse err: Empty value for key: $key in preference file $PREF_FILEPATH" >>/dev/stderr
                         exit 2
                     elif [ ! -e "$val" ]; then
                         option=
@@ -37,21 +44,23 @@ load_prefs() {
                     ;;
 
                 *) 
-                    echo "Err: Invalid key in $PREF_FILEPATH: $key" >>/dev/stderr
+                    echo "Parse err: Invalid key in $PREF_FILEPATH: $key" >>/dev/stderr
                     exit 2
+            esac 
         done < "$PREF_FILEPATH"
     else
-        if [ ! -f "$PREF_FILEPATH" ]; then 
-            echo "Preference file $PREF_FILEPATH exists but is not a file. Manualy delete this entry." >>/dev/stderr
-            exit 2
-        fi 
         [ $verbose ] && echo "Creating preference file: $PREF_FILEPATH..."
         echo "TRASHBIN_PATH=$DEFAULT_TRASHBIN_PATH" > $PREF_FILEPATH
+
+        [ $verbose ] && echo "Creating default trash bin directory..."
+        option=
+        [ $verbose ] && option="--verbose"
+        mkdir $option $DEFAULT_TRASHBIN_PATH
     fi
 }
 
 fetch_trash_info() {
-    echo "  # fetch_trash_info called"  # DEBUG
+    echo "  # invoked fetch_trash_info()"  # DEBUG
     for file in $(find $trashbin_path)
     do 
         echo "  # file=$file"  # DEBUG
@@ -60,18 +69,9 @@ fetch_trash_info() {
     done
 }
 
-# show_log() {
-#     echo "  # show_log called" # DEBUG 
-#     # echo "Contents\:"
-#     while IFS= read -r line
-#     do
-#         echo "  $line"
-#     done < "$LOG_FILE"
-# }
-
 restore_last() {
-    echo "  # restore_last called"  # DEBUG
-    lastdir=$(ls -t | head -1)
+    echo "  # invoked restore_last()"  # DEBUG
+    lastdir=$(ls -t "$trashbin_path" | head -1)
     echo "  # lastdir=$lastdir"
     if [ -z $lastdir ]; then 
         echo "Err: Nothing to restore. Trash bin empty!" >>/dev/stderr
@@ -81,31 +81,25 @@ restore_last() {
     option=$([ $verbose ] && printf -- "--verbose")
     echo mv $option -r "$lastdir" "$PWD"  # DEBUG 
     [ $verbose ] && echo "Restored files placed inside: $lastdir"
-
-    # last_line=$(tail -1 "$LOG_FILE")
-    # dir_name=$(cut -d: -f1 $last_line)
-    # restore_loc=$(cut -d: -f1 $last_line)
-    # [ $verbose -eq 1 ] && echo "Restoring files at $restore_loc..."
-    # echo "  # dir_name=$dir_name, restore_loc=$restore_loc"
-    # option=$([ $verbose -eq 1 ] && printf -- "--verbose")
-    # echo mv $option -r "$dir_name" "$restore_loc" # DEBUG
-    # echo rmdir $option "$dir_name" # DEBUG
 }
 
 flush_data() {
-    echo "  # flush_data called"  # DEBUG
+    echo "  # invoked flush_data()"  # DEBUG
     option=
     if [ $verbose ]; then
         option="--verbose"
         echo "Flushing..."
-    fi 
-    echo rm $option -rf "$trashbin_path/*"  # DEBUG
+    fi    
+    echo rm $option -rf "$trashbin_path/*"  # DEBUG    
+    [ $? -ne 0 ] && exit 2
+    echo "Done."
 }
 
-dotrash() {
-    echo "  # dotrash called"  # DEBUG
-    trashdir="$trashbin_path/$(date +'%s')"
+trash() {
+    echo "  # invoked trash()"  # DEBUG
+    trashdir="$trashbin_path"/$(date +'%s')
     mkdir "$trashdir"
+    [ $? -ne 0 ] && exit 2
     for file in ${srclist[@]}
     do 
         echo mv $option "$file" "$trashdir"  # DEBUG
@@ -116,7 +110,7 @@ dotrash() {
 }
 
 show_usage() {
-    echo Usage\: $0 \[-option1 \[-option2...\]\] \<path1\> \[\<path2\>...\]
+    echo "Usage: $0 [-option1 [-option2...]] [<path1> [<path2>...]] (no path argument means all contents of pwd)"
 }
 
 show_help() {
@@ -139,66 +133,102 @@ show_help() {
     echo "    -f, --flush    Permanently deletes all files in trash bin."
     echo "    -r, --restore  Restores last deleted items."
     echo "    -h, --help     Shows this help menu." 
+
+    echo "Exit codes:"
+    echo "    Normal exit    0"
+    echo "    User errors    1"
+    echo "    Other errors   2"
 }
 
-verbose=
-srclist=()
 filelen=0
 
-main() {
+# switches
+do_trash=ON  # since default behavior
+do_restore=
+do_flush=
+show_info=
+
+parse_cmdline() {
+    echo "  # inside parse_cmdline"  # DEBUG
+    echo "  # args=[$@]"  # DEBUG
     for arg in "$@"
     do
+        echo "  # parsed arg=$arg"  # DEBUG
         case "$arg" in 
             -v | --verbose)
                 verbose=ON
                 ;;
 
             -r | --restore)
-                restore_last
-                exit 0
+                do_trash=
+                do_restore=ON
                 ;;
 
-            -f | --flush)            
-                fetch_trash_info
-                echo "  # itemcount=$itemcount"  # DEBUG
-                if [ $itemcount -eq 0 ]; then 
-                    echo "Trash bin is empty!" >>/dev/stderr
-                else
-                    read -p "Permanently delete $itemcount item(s), $totalsz bytes of data? [Y for 'Yes']  " res
-                    echo "  # res='$res'"  # DEBUG
-                    if [ -n $res ] && [ "$res" == "Y" ]; then 
-                        flush_data
-                    fi
-                fi
-                exit 0;
+            -f | --flush)
+                do_trash=
+                do_flush=ON
+                ;;
 
             -i | --info)
-                fetch_trash_info
-                [ itemcount -eq 0 ] && echo "Trash bin is empty." || echo "Trash bin contains $itemcount item(s) with total of $totalsz bytes of data."
-                exit 0
+                do_trash=
+                show_info=ON
                 ;;
                 
-            -h | --help) 
-                show_help 
+            -h | --help)
+                show_help
                 exit 0
                 ;;
 
-            *) 
+            *)
                 srclist[$filelen]=$arg
-                printf "  # arg=%s, srclist[%d]=%s\n" "$arg" $filelen "${srclist[$filelen]}"  # DEBUG 
+                printf "  # srcfile=%s, srclist[%d]=%s\n" "$arg" $filelen "${srclist[$filelen]}"  # DEBUG 
                 filelen=$(($filelen+1)) 
                 ;;
         esac 
     done
+}
 
-    if [ $filelen -gt 0 ]; then 
-        dotrash
-    else 
-        show_usage
-        exit 1
+main() {
+    echo "  # inside main"  # DEBUG
+
+    parse_cmdline "$@"
+
+    # perform action
+    load_prefs
+
+    if [ $do_restore ]; then
+        restore_last
+    elif [ $do_flush ]; then 
+        fetch_trash_info
+        echo "  # itemcount=$itemcount"  # DEBUG
+        if [ $itemcount -eq 0 ]; then 
+            echo "Trash bin is empty!" >>/dev/stderr
+        else
+            read -p "Permanently delete $itemcount item(s), $totalsz bytes of data? [Y for 'Yes']  " res
+            echo "  # res='$res'"  # DEBUG
+            if [ -n $res ] && [ "$res" == "Y" ]; then 
+                flush_data
+            else 
+                echo 'Operation aborted.'
+            fi
+        fi
+    elif [ $show_info ]; then
+        fetch_trash_info
+        [ itemcount -eq 0 ] && echo "Trash bin is empty." || echo "Trash bin contains $itemcount item(s) with total of $totalsz bytes of data."
+    elif [ $do_trash ]; then
+        if [ $filelen -eq 0 ]; then
+            for file in $(ls -A)
+            do 
+                echo "  # adding file=$file"  # DEBUG
+                srclist[$filelen]=$file
+                filelen=$(($filelen+1))
+            done
+        fi
+        trash
     fi
+    exit 0
 }
 
 
 # start the program
-main
+main "$@"
