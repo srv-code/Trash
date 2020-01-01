@@ -173,7 +173,7 @@ parse_cmdline() {
 
             *)
                 srclist[$filelen]=$arg
-                printf "  # srcfile=%s, srclist[%d]=%s\n" "$arg" $filelen "${srclist[$filelen]}"  # DEBUG 
+                # printf "  # srcfile=%s, srclist[%d]=%s\n" "$arg" $filelen "${srclist[$filelen]}"  # DEBUG 
                 filelen=$(($filelen+1)) 
                 ;;
         esac 
@@ -206,6 +206,7 @@ main() {
         fi
     elif [ $show_info ]; then
         fetch_trash_info
+        echo "Trash bin directory: $trashbin_path"
         [ $itemcount -eq 0 ] && echo "Trash bin is empty." || echo "Trash bin contains $itemcount item(s) with total of $totalsz bytes of data."
     elif [ $do_trash ]; then
         if [ $filelen -eq 0 ]; then
