@@ -1,6 +1,6 @@
 #!/bin/bash 
 
-readonly APP_VERSION=1.0
+readonly APP_VERSION=1.01
 
 readonly DEFAULT_TRASHBIN_PATH="$HOME/.trashed"
 readonly PREF_FILENAME=".trashrc"
@@ -216,6 +216,13 @@ main() {
                 srclist[$filelen]=$file
                 filelen=$(($filelen+1))
             done
+
+            read -p "Consider all $filelen item(s)? [Y for 'Yes']  " res
+            # echo "  # res='$res'"  # DEBUG
+            if [ "$res" != "Y" ]; then 
+                echo 'Operation aborted.'
+                exit 0
+            fi
         fi
         trash
     fi
